@@ -1,0 +1,276 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  GC
+  PM
+  FOREMAN
+  WORKER
+}
+
+enum WorkerType {
+  OWN // our own employee, goes to payroll in later phases
+  SUB // subcontractor's worker, hours tracked for job cost only
+}
+
+enum ProjectType {
+  PRIVATE
+  IL_PREVAILING_WAGE
+  FEDERAL_DAVIS_BACON
+}
+
+enum SheetStatus {
+  DRAFT
+  SUBMITTED // waiting on PM approval(s)
+  PM_APPROVED // all project PMs approved, waiting on GC
+  LOCKED // GC approved
+  REJECTED
+  VOID
+}
+
+enum ApprovalStep {
+  PM
+  GC
+  ADMIN
+}
+
+enum ApprovalAction {
+  APPROVE
+  REJECT
+  EDIT
+  REOPEN
+  VOID
+}
+
+model Company {
+  id           String   @id @default(cuid())
+  name         String
+  isOwnCompany Boolean  @default(false)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  users        User[]
+  workers      Worker[]
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  roles         Role[]
+  active        Boolean   @default(true)
+  companyId     String?
+  company       Company?  @relation(fields: [companyId], references: [id])
+  createdAt     DateTime  @default(now())
+
+  accounts           Account[]
+  sessions           Session[]
+  worker             Worker?
+  managedProjects    Project[]           @relation("ProjectPM")
+  assignments        ProjectAssignment[]
+  submittedSheets    Timesheet[]         @relation("SubmittedBy")
+  approvals          Approval[]
+  auditEntries       AuditLog[]
+  exports            ExportFile[]
+}
+
+model Worker {
+  id             String     @id @default(cuid())
+  name           String
+  type           WorkerType @default(OWN)
+  companyId      String
+  company        Company    @relation(fields: [companyId], references: [id])
+  userId         String?    @unique
+  user           User?      @relation(fields: [userId], references: [id])
+  classification String? // trade classification, used for certified payroll later
+  active         Boolean    @default(true)
+  createdAt      DateTime   @default(now())
+  timesheets     Timesheet[]
+}
+
+model Project {
+  id          String              @id @default(cuid())
+  number      String              @unique
+  name        String
+  address     String?
+  county      String?
+  type        ProjectType         @default(PRIVATE)
+  pmUserId    String?
+  pm          User?               @relation("ProjectPM", fields: [pmUserId], references: [id])
+  active      Boolean             @default(true)
+  createdAt   DateTime            @default(now())
+  assignments ProjectAssignment[]
+  entries     TimesheetEntry[]
+  approvals   Approval[]
+}
+
+// Foremen (and later workers) assigned to a project. Foremen can see all hours on assigned projects.
+model ProjectAssignment {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id])
+  userId    String
+  user      User    @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, userId])
+}
+
+model Phase {
+  id       String           @id @default(cuid())
+  name     String           @unique
+  costCode String?
+  active   Boolean          @default(true)
+  sortOrder Int             @default(0)
+  entries  TimesheetEntry[]
+}
+
+model Timesheet {
+  id            String      @id @default(cuid())
+  workerId      String
+  worker        Worker      @relation(fields: [workerId], references: [id])
+  weekStart     DateTime    @db.Date // always a Sunday
+  status        SheetStatus @default(DRAFT)
+  cycle         Int         @default(1) // bumps on resubmit, edit, reopen; approvals only count in the current cycle
+  totalMinutes  Int         @default(0)
+  submittedById String?
+  submittedBy   User?       @relation("SubmittedBy", fields: [submittedById], references: [id])
+  submittedAt   DateTime?
+  isLate        Boolean     @default(false)
+
+  // Signature of whoever submitted (worker or foreman for crew)
+  signatureImage    String? // PNG data URL
+  signedName        String?
+  signedAt          DateTime?
+  signedIp          String?
+  signedUserAgent   String?
+  certificationText String?
+
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  days      TimesheetDay[]
+  approvals Approval[]
+
+  @@unique([workerId, weekStart])
+  @@index([weekStart, status])
+}
+
+model TimesheetDay {
+  id           String           @id @default(cuid())
+  timesheetId  String
+  timesheet    Timesheet        @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+  date         DateTime         @db.Date
+  startMinute  Int? // minutes after midnight, quarter-hour steps
+  endMinute    Int?
+  noLunch      Boolean          @default(false)
+  lunchMinutes Int              @default(0)
+  paidMinutes  Int              @default(0)
+  entries      TimesheetEntry[]
+
+  @@unique([timesheetId, date])
+}
+
+model TimesheetEntry {
+  id        String       @id @default(cuid())
+  dayId     String
+  day       TimesheetDay @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  projectId String
+  project   Project      @relation(fields: [projectId], references: [id])
+  phaseId   String
+  phase     Phase        @relation(fields: [phaseId], references: [id])
+  minutes   Int
+
+  @@index([projectId])
+}
+
+model Approval {
+  id             String         @id @default(cuid())
+  timesheetId    String
+  timesheet      Timesheet      @relation(fields: [timesheetId], references: [id])
+  cycle          Int
+  step           ApprovalStep
+  action         ApprovalAction
+  projectId      String? // set for PM approvals: which project's PM approved
+  project        Project?       @relation(fields: [projectId], references: [id])
+  approverId     String
+  approver       User           @relation(fields: [approverId], references: [id])
+  typedSignature String?
+  comment        String?
+  createdAt      DateTime       @default(now())
+
+  @@index([timesheetId, cycle])
+}
+
+// Append-only log of every change in the system.
+model AuditLog {
+  id        String   @id @default(cuid())
+  entity    String
+  entityId  String
+  action    String
+  changes   Json?
+  reason    String?
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+// Every generated download is stored so the exact file can be pulled again later.
+model ExportFile {
+  id          String   @id @default(cuid())
+  kind        String
+  params      Json
+  filename    String
+  contentType String
+  checksum    String
+  bytes       Bytes
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+// ---- Auth.js tables ----
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
