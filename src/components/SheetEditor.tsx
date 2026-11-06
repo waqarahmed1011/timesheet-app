@@ -201,8 +201,8 @@ export function SheetEditor(props: Props) {
             {d.rows.length > 0 && (
               <div className="mt-3 space-y-2">
                 {d.rows.map((r, j) => (
-                  <div key={j} className="grid grid-cols-[1fr_1fr_5rem_auto] gap-2">
-                    <select aria-label={`Project ${d.date} row ${j + 1}`} className={input} value={r.projectId} onChange={(e) => updateRow(i, j, { projectId: e.target.value })}>
+                  <div key={j} className="grid grid-cols-[1fr_5rem_auto] gap-2 border-t border-stone-100 pt-2 sm:grid-cols-[1fr_1fr_5rem_auto] sm:border-0 sm:pt-0">
+                    <select aria-label={`Project ${d.date} row ${j + 1}`} className={`${input} col-span-3 sm:col-span-1`} value={r.projectId} onChange={(e) => updateRow(i, j, { projectId: e.target.value })}>
                       <option value="">Project...</option>
                       {props.projects.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                     </select>

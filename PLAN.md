@@ -1,12 +1,14 @@
 # Timesheet App: Build Plan
 
-Status: draft for review. Nothing is built yet.
+Status: Phase 1 (core timesheets) built. See README.md to run it. Later phases not started.
 
 ## 1. What we're building
 
 A mobile-friendly web app (installable on a phone like an app, works offline) where workers and subcontractor foremen submit weekly timesheets, a Project Manager and then the GC approve them, and the office gets a dashboard, a permanent weekly archive, payroll exports, and certified payroll reports.
 
 ## 2. Decisions so far
+
+**Scope change after the first plan:** the owner intends this app to eventually replace Gusto, QuickBooks and Ajera completely. Order agreed: timesheets first (done), then payroll hours, certified payroll, job costing and billing, and the general ledger last, after everything else is proven. How paychecks and tax filings physically happen (payroll API vendor vs. doing it in-house) is still open and will be decided at the start of the payroll phase.
 
 | Topic | Decision |
 |---|---|
@@ -19,12 +21,19 @@ A mobile-friendly web app (installable on a phone like an app, works offline) wh
 | After final approval | Locked. Admin can reopen with a reason, which restarts approvals |
 | Payroll scope | Only your own employees. Subs' hours are tracked for job cost and verification, not paid through payroll |
 | State | Illinois |
-| Payroll outputs | CSV/Excel, gross pay calc, Gusto + QuickBooks formats, in-app tax/deduction calc, federal WH-347, Illinois IDOL certified payroll |
+| Payroll outputs | CSV/Excel, gross pay calc, in-app tax/deduction calc (app is the source of truth, owner's decision), federal WH-347, Illinois IDOL certified payroll |
 | Wage rates | Mixed: worker base rate on private jobs, project wage determination on prevailing wage jobs |
 | Signatures | Workers draw with finger; approvers type name + click |
-| Login | Google sign-in (plus a fallback, see section 9) |
+| Login | Google sign-in plus email sign-in link fallback |
 | Scale | Under 50 workers, under 10 active projects |
-| Extras in v1 | Email reminders, offline entry |
+| Extras | Email reminders, offline entry (Phase 2) |
+| Lunch | Start/end times each day; 30 min unpaid lunch auto-deducted on days of 7.5h or more, unless "No lunch taken" is checked |
+| Increments | Quarter hour |
+| Deadline | Monday 10:00 AM Central. Late sheets accepted and flagged |
+| Approvers | One GC approver; one PM per project. A sheet with several projects needs each project's PM |
+| Visibility | Workers see their own. Foremen see all hours (never rates) on projects they're assigned to and fill sheets for their own company's crew |
+| Extra pay | Per diem, travel/mileage, truck/tool allowance (payroll phase) |
+| Long-term scope | Replace Gusto, QuickBooks and Ajera (job costing, client billing, office time, WIP) |
 | Hosting | Free tier to start |
 | Phases | Admin-managed list, optional cost codes |
 | Maintenance | Claude, on request. So code must be simple and well tested, and all business data editable from admin screens |
@@ -135,6 +144,8 @@ Think of it like keeping a second set of books by hand next to QuickBooks: it'll
 
 **What I'll do instead:** build it in Phase 4 in "shadow mode." The app calculates, then you upload Gusto's payroll register, and the app shows a side-by-side comparison. WH-347 / IDOL reports use Gusto's actual numbers by default. If after 6-8 weeks the app matches Gusto to the cent, we can discuss trusting it. If you still want the app to be the source of truth, that's your call, but you should make it knowing the above.
 
+**Owner's decision:** the app is the source of truth. The shadow-mode comparison will still be built as a check during the transition off Gusto.
+
 ## 9. Login
 
 Google sign-in as you asked, **plus email magic link as a fallback.** Reason: plenty of laborers don't have a Google account, use a work phone, or share a phone with family. If the only way in is Google, those people end up texting hours to the foreman, which is the problem you're trying to fix. Workers with no login at all can still be covered by foreman crew sheets.
@@ -197,14 +208,20 @@ As described in 8.4.
 - App OT hours differ from Gusto's for any worker in a pay week: stop and fix before trusting exports.
 - You're still keeping a paper or Excel copy "just in case" after Phase 1 is done: something about the archive or downloads isn't trusted, and we should find out what.
 
-## 15. Still open (need from you before or during Phase 1)
+## 15. Recorded objections (decisions are the owner's; keeping these so they aren't forgotten)
 
-1. Company name and logo for the PDFs.
-2. Starting list of work phases and cost codes, if you use cost codes.
-3. Is there one GC approver or several? Same for PMs per project?
-4. Submission deadline (e.g. Monday 10am) and what happens to late sheets.
-5. Lunch: do workers enter net hours, or start/end with an automatic unpaid lunch deduction?
-6. QuickBooks Online or Desktop?
-7. A Gusto hours import template downloaded from your account.
-8. One current Illinois prevailing wage project's wage determination, to test against.
-9. Holidays you observe (affects prevailing wage OT).
+- **Replacing Gusto** means owning tax deposits (IRS monthly or semiweekly), 941/940, W-2s, IL-941, IDES unemployment, new hire reporting and garnishments, plus moving the money. A missed deposit can make the owner personally liable (trust fund recovery penalty).
+- **App as payroll source of truth** for certified payroll: if its deductions ever differ from what was actually paid, the certified payroll is false.
+- **Replacing QuickBooks:** the CPA and bonding company need statements they trust. Check with them before building the ledger.
+- **Free hosting** is fine for Phase 1 only. Before any SSN, W-4 or pay data is stored, move to a paid database with real backups.
+- **Auto lunch deduction** underpays anyone who skips lunch and doesn't check the box. The checkbox exists; foremen should be told to watch for it. Confirm the current Illinois meal break rule (One Day Rest in Seven Act) before relying on the 7.5h threshold.
+
+## 16. Still open
+
+1. Company name and logo for the PDFs (set `COMPANY_NAME` for now).
+2. Real list of work phases and cost codes (admin can enter them in Setup).
+3. Real projects, PMs, foremen and workers to load.
+4. Google OAuth client, Supabase and Resend accounts, and hosting, when ready to deploy.
+5. Payroll phase: how payroll is processed and filed, holidays, per diem/travel/allowance rules, Gusto export template if Gusto is kept during the transition.
+6. Certified payroll phase: a current Illinois wage determination, apprentices, fringe handling.
+7. Ajera replacement: current billing format (AIA G702/G703?), retainage, WIP report format.
